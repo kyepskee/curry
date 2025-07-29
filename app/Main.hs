@@ -1,6 +1,7 @@
 module Main where
 
 import Data.Foldable
+import Data.Maybe
 import Control.Exception
 import Debug.Trace
 
@@ -82,20 +83,23 @@ data InfiniteList a = Cons a (InfiniteList a)
 --                 go (n+1)
 --             else name
 
-shift :: Term -> Int -> Term
-shift term by =
-    go term by 0
-    where
-        go (Const cst) k c = (Const cst)
-        go (Var n len) k c =
-            if n >= c then
-                Var (n + k) (len + k) -- FIXME
-            else
-                Var n (len + k)
-        go (App t0 t1) k c =
-            App (go t0 k c) (go t1 k c)
-        go (Lam t term) k c =
-            Lam t (go term k (c + 1))
+data Cutoff = AtLeast Int
+
+shift :: Term -> Int -> Cutoff -> Term
+shift (Const cst) _ _ = (Const cst)
+shift (Var n len) k (AtLeast c) =
+    if n >= c then
+        Var (n + k) (len + k) -- FIXME
+    else
+        Var n (len + k)
+shift (App t0 t1) k c =
+    App (shift t0 k c) (shift t1 k c)
+shift (Lam t term) k (AtLeast c) =
+    Lam t (shift term k (AtLeast (c + 1)))
+
+shiftAll :: Term -> Int -> Term
+shiftAll term by =
+    shift term by (AtLeast 0)
 
 expand :: Typed -> Term
 expand (Typed _ term (Base _)) = term
@@ -103,17 +107,58 @@ expand (Typed env term (LamT s t)) =
     Lam s expanded
     where
         body = 
-            App (shift term 1) 
+            App (shiftAll term 1) 
                 (Var 0 (length env + 1))
         expanded = 
             expand (Typed (s:env) body t)
 
-termHead :: Term -> Term
-termHead (Lam _ _) = throw NotAtomic
-
 ass :: String -> Maybe a -> IO a
 ass _ (Just x) = pure x
 ass str Nothing = fail str
+
+termHead :: Term -> Term
+termHead (Lam _ _) = error "not an atomic term"
+termHead (App r _) = termHead r
+termHead x = x
+
+substRR :: Term -> (Int, Term) -> Term
+substRR (App r n) (x, m) =
+    App (substRR r (x, m))
+        (substN n (x, m))
+substRR (Const c) _ = Const c
+substRR (Var x len) (x', n) =
+    if x == x' then
+        error "replacing variable turns atomic into canonical"
+    else
+        (Var x len)
+substRR (Lam _ _) _ = error "not an atomic term"
+
+substRN :: Term -> (Int, Term) -> Term
+substRN (Const c) _ = Const c
+substRN (Var x len) (x', m) =
+    if trace ((show x) ++ " = " ++ (show x'))(x == x') then
+        trace ("m = " ++ show m) m
+    else
+        error "not replacing variable turns into atomic"
+substRN (Lam _ _) _ = error "not an atomic term"
+substRN (App r n) sub =
+    shiftAll (substN n' (0, m')) (-1)
+    where
+        (n', t) = case substRN r sub of
+                Lam t n' -> (n', t)
+                _ -> error "substRN returned atomic"
+        
+        m' = shiftAll (substN n sub) 1
+
+
+substN :: Term -> (Int, Term) -> Term
+substN (Lam t n) (x, m) = Lam t (substN n (x+1, (shiftAll m 1)))
+substN r (x, m) =
+    case traceShowId (termHead r) of
+        Var x' _ | x == (traceShowId x') ->
+            substRN r (x, m)
+        _ ->
+            substRR r (x, m)
 
 main :: IO ()
 main = do
@@ -121,6 +166,17 @@ main = do
         (Lam (LamT iota iota)
             (Lam iota
                 (App (Var 1 2) (App (Var 1 2) (Var 0 2)))))
-    typed <- ass "chujowo" $ typeTerm [LamT iota iota] (Var 0 1)
+    typed <- ass "typeTerm failed" $ typeTerm [LamT iota iota] (Var 0 1)
     putStrLn . show $ typed
     putStrLn . show $ expand typed
+
+    let env = [LamT iota (LamT iota iota), LamT iota (LamT iota iota)]
+    let replaceTerm = Lam iota 
+            (Lam iota 
+                (App (App (Var 2 4) (Var 0 4)) (Var 0 4)))
+    putStrLn . show $ typeTerm env replaceTerm
+    let subbing = expand . fromJust $ typeTerm env (Var 1 2)
+    putStrLn . show $ subbing
+    let subbed = substN replaceTerm (0, expand . fromJust $ typeTerm env (Var 1 2))
+    putStrLn . show $ subbed
+    putStrLn . show $ typeTerm env subbed
