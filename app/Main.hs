@@ -25,17 +25,6 @@ data Term
     | App Term Term
     deriving (Eq, Show)
 
--- freeVars :: [Name] -> Term -> [Name]
--- freeVars _ (Const _) = []
--- freeVars env (Var name _) =
---     if name `elem` env 
---     then []
---     else [name]
--- freeVars env (Lam name _ term) = 
---     freeVars (name : env) term
--- freeVars env (App t0 t1) =
---     freeVars env t0 ++ freeVars env t1
-
 type Env = [Type]
 
 iota :: Type
@@ -71,19 +60,6 @@ data Typed = Typed Env Term Type
 typeTerm :: Env -> Term -> Maybe Typed
 typeTerm env term =
     fmap (\t -> Typed env term t) (typecheck env term)
-
-data InfiniteList a = Cons a (InfiniteList a)
-
--- fresh :: Term -> Name
--- fresh term =
---     go 0
---     where
---         go :: Int -> Name
---         go n =
---             let name = Name ("x_" ++ show n) in
---             if name `elem` (freeVars [] term) then 
---                 go (n+1)
---             else name
 
 data Cutoff = AtLeast Int
 
