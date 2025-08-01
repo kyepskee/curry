@@ -5,6 +5,8 @@ import Data.Maybe
 import Control.Exception
 import Debug.Trace
 
+import qualified Parser as P
+
 data Name = Name String
     deriving (Eq, Show)
 
@@ -162,6 +164,7 @@ substN r (x, m) =
 
 main :: IO ()
 main = do
+    putStrLn . show $ P.parse $ P.lexer "sort nat : int\nsort zero <= nat\nsort pos <= nat\nz : zero"
     putStrLn . show . typecheck [] $ 
         (Lam (LamT iota iota)
             (Lam iota
