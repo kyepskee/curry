@@ -67,7 +67,7 @@ executable curry
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.17.2.1, array
+    build-depends:    base ^>=4.17.2.1, array, lens
 
     -- Directories containing source files.
     hs-source-dirs:   app

@@ -1,9 +1,13 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Data.Foldable
 import Data.Maybe
 import Control.Exception
 import Debug.Trace
+
+import Control.Lens ((&), (^.), (%~), to, at, (^?), ix)
+import qualified Control.Lens as L
 
 import qualified Parser as P
 
@@ -25,8 +29,6 @@ data Term
     | App Term Term
     deriving (Eq, Show)
 
-type Env = [Type]
-
 iota :: Type
 iota = Base Iota
 
@@ -36,14 +38,21 @@ data TypingException
     deriving (Show)
 instance Exception TypingException
 
+data Env = Env
+    { _types :: [Type]
+    }
+    deriving (Eq,Show)
+
+L.makeLenses ''Env
+
 typecheck :: Env -> Term -> Maybe Type
 typecheck env (Lam t term) = do
-    t' <- typecheck (t:env) term
+    t' <- typecheck (env & types %~ (t:)) term
     pure $ LamT t t'
 typecheck _ (Const t) = Just t
 typecheck env (Var idx len) =
-    if length env == len then
-        Just $ env !! idx
+    if (env ^. types . to length) == len then
+        env ^? types . ix idx
     else
         throw EnvLength
 typecheck env (App term0 term1) =
@@ -86,9 +95,9 @@ expand (Typed env term (LamT s t)) =
     where
         body = 
             App (shiftAll term 1) 
-                (Var 0 (length env + 1))
+                (Var 0 (env^.types.to length + 1))
         expanded = 
-            expand (Typed (s:env) body t)
+            expand (Typed (env & types %~ (s:)) body t)
 
 ass :: String -> Maybe a -> IO a
 ass _ (Just x) = pure x
@@ -138,18 +147,20 @@ substN r (x, m) =
         _ ->
             substRR r (x, m)
 
+emptyEnv = Env []
+
 main :: IO ()
 main = do
     putStrLn . show $ P.parse $ P.lexer "sort nat : int\nsort zero <= nat\nsort pos <= nat\nz : zero"
-    putStrLn . show . typecheck [] $ 
+    putStrLn . show . typecheck emptyEnv $ 
         (Lam (LamT iota iota)
             (Lam iota
                 (App (Var 1 2) (App (Var 1 2) (Var 0 2)))))
-    typed <- ass "typeTerm failed" $ typeTerm [LamT iota iota] (Var 0 1)
+    typed <- ass "typeTerm failed" $ typeTerm (Env [LamT iota iota]) (Var 0 1)
     putStrLn . show $ typed
     putStrLn . show $ expand typed
 
-    let env = [LamT iota (LamT iota iota), LamT iota (LamT iota iota)]
+    let env = Env [LamT iota (LamT iota iota), LamT iota (LamT iota iota)]
     let replaceTerm = Lam iota 
             (Lam iota 
                 (App (App (Var 2 4) (Var 0 4)) (Var 0 4)))
